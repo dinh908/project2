@@ -1,167 +1,134 @@
 #include <iostream>
+#include <vector>
 #include <cstdint>
-#include <stack>
+
 using namespace std;
 
-const int BOARD_SIZE = 16;
-const int BLOCK_SIZE = 4;
-
-// Bit manipulation constants
+// Constants for bit manipulation
 const uint32_t IS_FILLED_IN = 0x80000000;
-const uint32_t VALUE_MASK   = 0x0000000F;
-const uint32_t IS_0_VALID   = 0x00000010;
-const uint32_t VALID_BITS   = 0x000FFFF0;
+const uint32_t VALUE_MASK  = 0x0000000F;
+const uint32_t IS_0_VALID  = 0x00000010;
+const uint32_t VALID_BITS  = 0x000FFFF0;
 
-uint32_t board[BOARD_SIZE][BOARD_SIZE];
-stack<pair<int, int>> cellStack;
+// Sudoku grid
+uint32_t board[16][16];
 
-//Function read board from input
+// Stack for backtracking
+vector<int> cellStack;
+
+// Function to read the board
 void readBoard() {
-    cout << "[DEBUG] Reading board from input...\n";
-    for (int i = 0; i < BOARD_SIZE; i++) {
-        for (int j = 0; j < BOARD_SIZE; j++) {
-            char ch;
-            cin >> ch;
-            if (ch == '.')
-                board[i][j] = VALID_BITS;
-            else
-                board[i][j] = ((isdigit(ch) ? ch - '0' : ch - 'a' + 10) & VALUE_MASK) | IS_FILLED_IN;
+    for (int i = 0; i < 16; i++) {
+        string row;
+        cin >> row;
+        for (int j = 0; j < 16; j++) {
+            if (row[j] == '.') {
+                board[i][j] = VALID_BITS; // All numbers initially valid
+            } else {
+                uint32_t val = (row[j] >= '0' && row[j] <= '9') ? row[j] - '0' : row[j] - 'a' + 10;
+                board[i][j] = IS_FILLED_IN | val;
+            }
         }
     }
 }
 
-// DisplayDisplay board
-void displayBoard() {
-    cout << "[DEBUG] Current Board State:\n";
-    for (int i = 0; i < BOARD_SIZE; i++) {
-        for (int j = 0; j < BOARD_SIZE; j++) {
-            if (board[i][j] & IS_FILLED_IN) {
-                int val = board[i][j] & VALUE_MASK;
-                cout << (val < 10 ? char('0' + val) : char('a' + (val - 10)));
-            } else {
-                cout << ".";
-            }
-            if ((j + 1) % BLOCK_SIZE == 0 && j != BOARD_SIZE - 1)
-                cout << " ";
+// Function to print the solved board
+void printBoard() {
+    for (int i = 0; i < 16; i++) {
+        for (int j = 0; j < 16; j++) {
+            uint32_t val = board[i][j] & VALUE_MASK;
+            cout << (val < 10 ? char('0' + val) : char('a' + val - 10)) << " ";
         }
         cout << endl;
-        if ((i + 1) % BLOCK_SIZE == 0 && i != BOARD_SIZE - 1)
-            cout << endl;
     }
 }
 
-// Update valid address
-void recomputeCandidates() {
-    cout << "[DEBUG] Recomputing candidates...\n";
+// Function to update valid choices in row, column, and 4x4 block
+void updateValidChoices(int row, int col, uint32_t val) {
+    uint32_t mask = ~(IS_0_VALID << val);
 
-    for (int i = 0; i < BOARD_SIZE; i++)
-        for (int j = 0; j < BOARD_SIZE; j++)
-            if (!(board[i][j] & IS_FILLED_IN))
-                board[i][j] = VALID_BITS;
-
-    for (int i = 0; i < BOARD_SIZE; i++) {
-        for (int j = 0; j < BOARD_SIZE; j++) {
-            if (board[i][j] & IS_FILLED_IN) {
-                int val = board[i][j] & VALUE_MASK;
-                uint32_t mask = ~(IS_0_VALID << val);
-
-                for (int k = 0; k < BOARD_SIZE; k++) {
-                    if (!(board[i][k] & IS_FILLED_IN)) board[i][k] &= mask;
-                    if (!(board[k][j] & IS_FILLED_IN)) board[k][j] &= mask;
-                }
-
-                int boxRow = (i / BLOCK_SIZE) * BLOCK_SIZE;
-                int boxCol = (j / BLOCK_SIZE) * BLOCK_SIZE;
-                for (int r = 0; r < BLOCK_SIZE; r++) {
-                    for (int c = 0; c < BLOCK_SIZE; c++) {
-                        if (!(board[boxRow + r][boxCol + c] & IS_FILLED_IN))
-                            board[boxRow + r][boxCol + c] &= mask;
-                    }
-                }
-            }
-        }
+    // Remove from row and column
+    for (int i = 0; i < 16; i++) {
+        if (!(board[row][i] & IS_FILLED_IN)) board[row][i] &= mask;
+        if (!(board[i][col] & IS_FILLED_IN)) board[i][col] &= mask;
     }
+
+    // Remove from 4x4 block
+    int blockStartRow = row - row % 4;
+    int blockStartCol = col - col % 4;
+    for (int i = 0; i < 4; i++)
+        for (int j = 0; j < 4; j++)
+            if (!(board[blockStartRow + i][blockStartCol + j] & IS_FILLED_IN))
+                board[blockStartRow + i][blockStartCol + j] &= mask;
 }
 
-// Find best empty cell
+// Function to find the best empty cell (fewest valid choices)
 bool findBestEmptyCell(int &bestRow, int &bestCol) {
-    int minChoices = BOARD_SIZE + 1;
-    bool found = false;
-    for (int i = 0; i < BOARD_SIZE; i++) {
-        for (int j = 0; j < BOARD_SIZE; j++) {
-            if (!(board[i][j] & IS_FILLED_IN)) {
-                int choices = __builtin_popcount(board[i][j] & VALID_BITS);
-                if (choices < minChoices && choices > 0) {
-                    minChoices = choices;
-                    bestRow = i;
-                    bestCol = j;
-                    found = true;
-                }
-            }
-        }
-    }
-    
-    if (found) {
-        cout << "[DEBUG] Best empty cell: (" << bestRow << "," << bestCol << ") with " << minChoices << " choices.\n";
-    }
-    
-    return found;
-}
+    int minChoices = 17;
 
-// Solver
-bool solveSudoku() {
-    int bestRow, bestCol;
-    if (!findBestEmptyCell(bestRow, bestCol)) return true;
+    for (int i = 0; i < 16; i++) {
+        for (int j = 0; j < 16; j++) {
+            if (board[i][j] & IS_FILLED_IN) continue;
 
-    cellStack.push({bestRow, bestCol});
+            int count = 0;
+            for (int k = 0; k < 16; k++)
+                if (board[i][j] & (IS_0_VALID << k))
+                    count++;
 
-    while (!cellStack.empty()) {
-        auto [row, col] = cellStack.top();
-        cellStack.pop();
-
-        if (!(board[row][col] & IS_FILLED_IN)) {
-            cout << "[DEBUG] Trying values for cell: (" << row << "," << col << ")\n";
-
-            bool placed = false;
-            
-            for (int num = 0; num < BOARD_SIZE; num++) {
-                if (board[row][col] & (IS_0_VALID << num)) {
-                    board[row][col] = (num & VALUE_MASK) | IS_FILLED_IN;
-                    recomputeCandidates();
-                    if (findBestEmptyCell(bestRow, bestCol)) {
-                        cellStack.push({row, col});
-                        cellStack.push({bestRow, bestCol});
-                        placed = true;
-                        break;
-                    } else {
-                        cout << "[DEBUG] Solution found!\n";
-                        return true;
-                    }
-                }
-            }
-
-            if (!placed) {
-                cout << "[DEBUG] Backtracking on cell: (" << row << "," << col << ") - Resetting choices\n";
-                board[row][col] = VALID_BITS;
-                recomputeCandidates();
+            if (count < minChoices) {
+                minChoices = count;
+                bestRow = i;
+                bestCol = j;
             }
         }
     }
 
-    return false;
+    if (minChoices == 17) return false; // No empty cells left
+    board[bestRow][bestCol] |= IS_FILLED_IN;
+    cellStack.push_back(bestRow * 16 + bestCol);
+    return true;
 }
 
+// Function to solve the Sudoku using backtracking
+void solveSudoku() {
+    int row, col;
+
+    while (true) {
+        if (cellStack.empty()) {
+            cout << "No solution found!\n";
+            return;
+        }
+
+        int val = cellStack.back();
+        row = val / 16;
+        col = val % 16;
+
+        // Try the next valid choice
+        bool found = false;
+        for (int choice = 0; choice < 16; choice++) {
+            if (board[row][col] & (IS_0_VALID << choice)) {
+                board[row][col] = (board[row][col] & ~VALUE_MASK) | choice;
+                updateValidChoices(row, col, choice);
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            // If no valid choice, backtrack
+            board[row][col] &= ~IS_FILLED_IN;
+            cellStack.pop_back();
+        } else {
+            // Find the next best cell
+            if (!findBestEmptyCell(row, col)) break;
+        }
+    }
+}
+
+// Main function
 int main() {
     readBoard();
-    displayBoard();
-
-    if (solveSudoku()) {
-        cout << "\n[SUCCESS] Solved Sudoku:\n";
-        displayBoard();
-    } else {
-        cout << "\n[FAIL] No solution found\n";
-    }
-
+    solveSudoku();
+    printBoard();
     return 0;
 }
-
